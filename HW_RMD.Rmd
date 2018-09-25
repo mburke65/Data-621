@@ -1,0 +1,227 @@
+---
+title: "Homework 1- Data 621"
+author: "Meaghan Burke"
+date: "September 17, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(reshape2)
+library(ggcorrplot)
+```
+
+## 1. DATA EXPLORATION (25 Points)
+
+Describe the size and the variables in the moneyball training data set. Consider that too much detail will cause a manager to lose interest while too little detail will make the manager consider that you aren't doing your job. Some suggestions are given below. Please do NOT treat this as a check list of things to do to complete the assignment. You should have your own thoughts on what to tell the boss. These are just ideas.
+
+a. Mean / Standard Deviation / Median
+b. Bar Chart or Box Plot of the data
+c. Is the data correlated to the target variable (or to other variables?)
+d. Are any of the variables missing and need to be imputed "fixed"?
+
+
+```{r echo = TRUE}
+
+#read in the money ball training set and print out a sample anf the column headers 
+#replace TEAM from column header 
+# remove the index because it is not relevant to the dataset as per the instructions 
+
+raw.data  <- "C:/Users/burke/OneDrive/Desktop/Data 621- Data Mining/HW 1/Data/moneyball-training-data.csv"
+
+train.data <- read.csv(raw.data,header = T)
+
+train.data <- train.data%>%
+  `colnames<-`( gsub("TEAM_", "", names(train.data))) %>%
+   select(-c(INDEX))
+
+
+#may remove the head() and names() dim()
+dim(train.data)
+head(train.data)
+
+```
+```{r}
+x <- NULL
+for(i in 1:16){
+
+  x[[paste((names(train.data[i])))]] <- length(unique(train.data[,i]))
+
+}
+unique.values.df <-data.frame(x)
+
+unique.values.df <-unique.values.df%>%
+  mutate(Variable.Name = names(train.data))%>%
+  rename(Unique.Values = x)%>%
+  select(Variable.Name, Unique.Values)
+
+```
+
+
+```{r echo = TRUE}
+
+
+summary_statistics_df <- data.frame(summary(train.data)) %>%
+        select (-c( Var1)) %>%
+        separate(Freq, c("Measure", "Value"), ":") %>%
+        mutate(Measure = trimws(Measure))%>%        
+        rename(Variable.Name = Var2)
+
+
+
+summary_statistics_df <-spread(summary_statistics_df, key = Measure, value = Value)%>%
+                        mutate(Variable.Name  = trimws(Variable.Name ))
+
+summary_statistics_df<- merge(x= summary_statistics_df,y = unique.values.df, by = "Variable.Name", all.x = TRUE)%>%
+  select( 1:7, NA.COUNT = 8, everything() )
+
+
+
+```
+
+```{r echo = TRUE}
+sd_df <-stack(sapply(train.data[names(train.data)], sd, na.rm = TRUE))%>%
+        rename(Variable.Name =ind, Standard.Dev = values)%>%
+        select(Variable.Name,Standard.Dev )%>%
+        mutate(Variable.Name  = trimws(Variable.Name ))
+```
+
+
+```{r echo = TRUE}
+full_summary_df <- merge(x= summary_statistics_df,y = sd_df, by = "Variable.Name", all.x = TRUE)%>%
+                  mutate_at(c(2:9), as.integer)%>%
+                  replace(., is.na(.), 0)%>%
+                  select(-c(9))%>%
+                  arrange(Variable.Name )
+ 
+full_summary_df
+```
+
+```{r}
+trainplot%>%
+  ggplot(aes(x = variable
+             , y = value)) +
+  geom_boxplot()+
+  facet_wrap(~variable
+             , scales = "free")
+
+
+```
+
+```{r}
+trainplot%>%
+  ggplot(aes( value)) +
+  geom_histogram()+
+  facet_wrap(~variable
+             , scales = "free") 
+```
+```{r}
+targetwin.value <- melt(train.data, "TARGET_WINS")
+
+targetwin.value%>%
+  ggplot(aes(value,TARGET_WINS))+
+  geom_point(color='red')+  
+  geom_smooth(method = "lm", se = FALSE)+
+  facet_wrap(~variable
+             , scales = "free")
+```
+
+## Correlation
+
+```{r}
+cor_mx <- cor(train.data ,use="pairwise.complete.obs", method = "pearson")
+ggcorrplot(cor_mx, method = "circle",hc.order = TRUE, type = "lower", lab = TRUE,lab_size = 2)
+```
+
+##2. DATA PREPARATION (25 Points)
+
+Describe how you have transformed the data by changing the original variables or creating new variables. If you did transform the data or create new variables, discuss why you did this. Here are some possible transformations.
+a. Fix missing values (maybe with a Mean or Median value)
+b. Create flags to suggest if a variable was missing
+c. Transform data by putting it into buckets
+d. Mathematical transforms such as log or square root (or use Box-Cox)
+e. Combine variables (such as ratios or adding or multiplying) to create new variables
+
+###a. Fix missing values (maybe with a Mean or Median value)
+
+The chart below indicates that six out of sixteen variables have instances of null values. The median values for  for 'BASERUN_CS', 'FIELDING_DP','BASERUN_SB','BATTING_SO','PITCHING_SO' will serve as the replacement values. Since 'HBP'BATTING_HBP' has the majority of its data missing, the nulls will be replaced by zeros.
+
+```{r}
+full_summary_df%>%
+  arrange(desc(NA.COUNT))%>%
+  select(c(Variable.Name, NA.COUNT, Unique.Values, Median))
+restructured.train.data <- train.data  
+```
+
+```{r}
+na.cols = c('BASERUN_CS', 'FIELDING_DP','BASERUN_SB','BATTING_SO','PITCHING_SO' )
+
+for (i in na.cols){
+  restructured.train.data[[i]][is.na(restructured.train.data[[i]])]= median(restructured.train.data[[i]],na.rm = TRUE)
+}
+restructured.train.data$BATTING_HBP[is.na(restructured.train.data$BATTING_HBP)]= 0
+
+head(restructured.train.data)
+```
+
+
+### Feature Creation
+*Combine variables (such as ratios or adding or multiplying) to create new variables*
+
+The groups are derived from the initial variable description table. Variables that have a theoretical "Positive Impact on Wins" are particulary interesting and worth exploring. The first variable,offense,is the combination of the batting and stolen bases variables. The second variable, defense, are the fielding and pitching variables that help maintain leads/prevent losing.  
+
+```{r}
+restructured.train.data <- restructured.train.data %>%
+    mutate(Offense = BATTING_H + BATTING_H + BATTING_2B +
+             BATTING_3B+ BATTING_HR+ BATTING_BB+ BATTING_HBP +BASERUN_SB)%>%
+    mutate(Defense = round(FIELDING_DP+ PITCHING_SO))
+head(restructured.train.data)
+```
+
+```{r}
+trainplot.2 <- melt(restructured.train.data) 
+trainplot.2%>%
+  filter(variable == 'Offense'| variable == 'Defense')%>%
+  ggplot(aes( value)) +
+  geom_histogram()+
+  facet_wrap(~variable
+             , scales = "free") 
+```
+```{r}
+trainplot.2%>%
+  filter(variable == 'Offense'| variable == 'Defense')%>%
+  ggplot(aes(x = variable
+             , y = value)) +
+  geom_boxplot()+
+  facet_wrap(~variable
+             , scales = "free") 
+```
+```{r}
+cor_mx <- cor(restructured.train.data ,use="pairwise.complete.obs", method = "pearson")
+ggcorrplot(cor_mx, method = "circle",hc.order = TRUE, type = "lower", lab = TRUE,lab_size = 2)
+
+```
+
+### 3. BUILD MODELS (25 Points)
+Using the training data set, build at least three different multiple linear regression models, using different variables (or the same variables with different transformations). Since we have not yet covered automated variable selection methods, you should select the variables manually (unless you previously learned Forward or Stepwise selection, etc.). Since you manually selected a variable for inclusion into the model or exclusion into the model, indicate why this was done.
+Discuss the coefficients in the models, do they make sense? For example, if a team hits a lot of Home Runs, it would be reasonably expected that such a team would win more games. However, if the coefficient is negative (suggesting that the team would lose more games), then that needs to be discussed. Are you keeping the model even though it is counter intuitive? Why? The boss needs to know
+
+
+```{r}
+
+Model1 <- lm(TARGET_WINS~ ., data = restructured.train.data)
+summary(Model1)
+
+```
+```{r}
+Model1 <- update(Model1, .~.-Offense-FIELDING_DP, data = restructured.train.data)
+summary(Model1)
+```
+  
+
+
+
+
+
