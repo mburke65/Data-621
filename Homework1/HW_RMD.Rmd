@@ -1,0 +1,558 @@
+---
+title: "Homework 1- Data 621"
+author: "Meaghan Burke"
+date: "September 17, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(reshape2)
+library(ggcorrplot)
+library(gvlma)
+library(outliers)
+library(e1071)
+library(knitr)
+library(kableExtra)
+```
+
+## 1. DATA EXPLORATION (25 Points)
+
+Describe the size and the variables in the moneyball training data set. Consider that too much detail will cause a manager to lose interest while too little detail will make the manager consider that you aren't doing your job. Some suggestions are given below. Please do NOT treat this as a check list of things to do to complete the assignment. You should have your own thoughts on what to tell the boss. These are just ideas.
+
+a. Mean / Standard Deviation / Median
+b. Bar Chart or Box Plot of the data
+c. Is the data correlated to the target variable (or to other variables?)
+d. Are any of the variables missing and need to be imputed "fixed"?
+
+### Train Data Exploration
+- Read in the data set
+- Calculate the summary statistics 
+  - 1st Qu., 3rd Qu.,  Max., Mean, Median, Min., NA.COUNT, Unique.Values, Standard.Dev
+  - Correlation 
+  - Visualizations (density plot, scatter plot, correlation)
+```{r echo = FALSE}
+
+#read in the money ball training set and print out a sample anf the column headers 
+#replace TEAM from column header 
+# remove the index because it is not relevant to the dataset as per the instructions 
+
+raw.data  <- "C:/Users/burke/OneDrive/Desktop/Data 621- Data Mining/HW 1/Data/moneyball-training-data.csv"
+
+train.data <- read.csv(raw.data,header = T)
+
+train.data <- train.data%>%
+  `colnames<-`( gsub("TEAM_", "", names(train.data))) %>%select(-c(INDEX))
+
+
+raw.data.test <- "C:/Users/burke/OneDrive/Desktop/Data 621- Data Mining/HW 1/Data/moneyball-evaluation-data.csv"
+test.data <- read.csv(raw.data.test,header = T)
+
+
+test.data <- test.data%>%
+  `colnames<-`( gsub("TEAM_", "", names(test.data))) %>%select(-c(INDEX))
+
+```
+
+#### Initial Sample Train.Data/Dimensions of Train.Data
+```{r echo = FALSE}
+#may remove the head() and names() dim()
+
+temp.df<- data.frame(dim(train.data))%>%
+          `colnames<-` ('Train.Data Dimensions')
+
+kable(temp.df)
+  
+kable(head(train.data)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+```
+
+
+```{r echo = FALSE}
+x <- NULL
+for(i in 1:16){
+
+  x[[paste((names(train.data[i])))]] <- length(unique(train.data[,i]))
+
+}
+unique.values.df <-data.frame(x)
+
+unique.values.df <-unique.values.df%>%
+  mutate(Variable.Name = names(train.data))%>%
+  rename(Unique.Values = x)%>%
+  select(Variable.Name, Unique.Values)
+
+```
+
+#### Summary Statistics Dataframe  
+```{r echo = FALSE}
+
+
+summary_statistics_df <- data.frame(summary(train.data)) %>%
+        select (-c( Var1)) %>%
+        separate(Freq, c("Measure", "Value"), ":") %>%
+        mutate(Measure = trimws(Measure))%>%        
+        rename(Variable.Name = Var2)
+
+
+
+summary_statistics_df <-spread(summary_statistics_df, key = Measure, value = Value)%>%
+                        mutate(Variable.Name  = trimws(Variable.Name ))
+
+summary_statistics_df<- merge(x= summary_statistics_df,y = unique.values.df, by = "Variable.Name", all.x = TRUE)%>%
+  select( 1:7, NA.COUNT = 8, everything() )
+
+
+
+```
+
+```{r echo = FALSE}
+sd_df <-stack(sapply(train.data[names(train.data)], sd, na.rm = TRUE))%>%
+        rename(Variable.Name =ind, Standard.Dev = values)%>%
+        select(Variable.Name,Standard.Dev )%>%
+        mutate(Variable.Name  = trimws(Variable.Name ))
+```
+
+
+```{r echo = FALSE}
+full_summary_df <- merge(x= summary_statistics_df,y = sd_df, by = "Variable.Name", all.x = TRUE)%>%
+                  mutate_at(c(2:9), as.integer)%>%
+                  replace(., is.na(.), 0)%>%
+                  select(-c(9))%>%
+                  arrange(Variable.Name )
+ 
+kable(full_summary_df)%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+#### Variable Box Plots 
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+trainplot <- melt(train.data)
+trainplot%>%
+  ggplot(aes(x = variable
+             , y = value)) +
+  geom_boxplot()+
+  facet_wrap(~variable
+             , scales = "free")
+
+
+```
+
+#### Variable Density Graphs
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+ggplot(trainplot, aes(x= value)) +
+    geom_density(fill='red') + facet_wrap(~variable, scales = 'free')
+```
+
+#### Scatterplot with Regression Line
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+targetwin.value <- melt(train.data, "TARGET_WINS")
+
+targetwin.value%>%
+  ggplot(aes(value,TARGET_WINS))+
+  geom_point(color='red')+  
+  geom_smooth(method = "lm", se = FALSE)+
+  facet_wrap(~variable
+             , scales = "free")
+```
+
+
+#### Correlation Matrix
+```{r echo = FALSE}
+cor_mx <- cor(train.data ,use="pairwise.complete.obs", method = "pearson")
+ggcorrplot(cor_mx, method = "circle",hc.order = TRUE, type = "lower", lab = TRUE,lab_size = 2)
+```
+
+##2. DATA PREPARATION (25 Points)
+
+Describe how you have transformed the data by changing the original variables or creating new variables. If you did transform the data or create new variables, discuss why you did this. Here are some possible transformations.
+a. Fix missing values (maybe with a Mean or Median value)
+b. Create flags to suggest if a variable was missing
+c. Transform data by putting it into buckets
+d. Mathematical transforms such as log or square root (or use Box-Cox)
+e. Combine variables (such as ratios or adding or multiplying) to create new variables
+
+#### Fix missing values 
+
+The chart below indicates that six out of sixteen variables have instances of null values. The median values for  for 'BASERUN_CS', 'FIELDING_DP','BASERUN_SB','BATTING_SO','PITCHING_SO' will serve as the replacement values. Since 'HBP'BATTING_HBP' has the majority of its data missing, the nulls will be replaced by zeros.
+Below is a dataframe of the number of null values prior to transformation
+```{r echo = FALSE}
+kable(full_summary_df%>%
+  arrange(desc(NA.COUNT))%>%
+  select(c(Variable.Name, NA.COUNT, Unique.Values, Median)))%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+restructured.train.data <- train.data  
+```
+
+```{r echo = FALSE}
+na.cols = c('BASERUN_CS', 'FIELDING_DP','BASERUN_SB','BATTING_SO','PITCHING_SO' )
+
+for (i in na.cols){
+  restructured.train.data[[i]][is.na(restructured.train.data[[i]])]= median(restructured.train.data[[i]],na.rm = TRUE)
+}
+restructured.train.data$BATTING_HBP[is.na(restructured.train.data$BATTING_HBP)]= 0
+
+for (i in na.cols){
+  test.data[[i]][is.na(test.data[[i]])]= median(test.data[[i]],na.rm = TRUE)
+}
+test.data$BATTING_HBP[is.na(test.data$BATTING_HBP)]= 0
+```
+
+
+### Feature Creation
+*Combine variables (such as ratios or adding or multiplying) to create new variables*
+
+The groups are derived from the initial variable description table. Variables that have a theoretical "Positive Impact on Wins" are particulary interesting and worth exploring. The first variable,offense,is the combination of the batting and stolen bases variables. The second variable, defense, are the fielding and pitching variables that help maintain leads/prevent losing.  
+
+- **Offense**: BATTING_H + BATTING_H + BATTING_2B + BATTING_3B+ BATTING_HR+ BATTING_BB+ BATTING_HBP +BASERUN_SB
+- **Defense**: FIELDING_DP+ PITCHING_SO
+
+```{r echo = FALSE}
+restructured.train.data <- restructured.train.data %>%
+    mutate(Offense = BATTING_H + BATTING_H + BATTING_2B +
+             BATTING_3B+ BATTING_HR+ BATTING_BB+ BATTING_HBP +BASERUN_SB)%>%
+    mutate(Defense = round(FIELDING_DP+ PITCHING_SO))
+
+```
+
+#### Feature Creation Histograms
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+trainplot.2 <- melt(restructured.train.data) 
+trainplot.2%>%
+  filter(variable == 'Offense'| variable == 'Defense')%>%
+  ggplot(aes( value)) +
+  geom_histogram()+
+  geom_density(fill='red') +
+  facet_wrap(~variable
+             , scales = "free") 
+```
+
+#### Feature Creation Box Plots
+```{r echo = FALSE}
+trainplot.2%>%
+  filter(variable == 'Offense'| variable == 'Defense')%>%
+  ggplot(aes(x = variable
+             , y = value)) +
+  geom_boxplot()+
+  facet_wrap(~variable
+             , scales = "free") 
+```
+
+#### Correlation Matrix -- Restructured Train Data (Removal of Nulls)
+```{r echo = FALSE}
+cor_mx <- cor(restructured.train.data ,use="pairwise.complete.obs", method = "pearson")
+ggcorrplot(cor_mx, method = "circle",hc.order = TRUE, type = "lower", lab = TRUE,lab_size = 2)
+
+```
+
+### 3. BUILD MODELS (25 Points)
+Using the training data set, build at least three different multiple linear regression models, using different variables (or the same variables with different transformations). Since we have not yet covered automated variable selection methods, you should select the variables manually (unless you previously learned Forward or Stepwise selection, etc.). Since you manually selected a variable for inclusion into the model or exclusion into the model, indicate why this was done.
+Discuss the coefficients in the models, do they make sense? For example, if a team hits a lot of Home Runs, it would be reasonably expected that such a team would win more games. However, if the coefficient is negative (suggesting that the team would lose more games), then that needs to be discussed. Are you keeping the model even though it is counter intuitive? Why? The boss needs to know
+
+#### Model 1: All variables - (raw data)
+
+Model1 is the fitted result of the raw train.data, no transformations. The lm method removes all the NAs. The fitted Model1 will serve as the baseline for all subsequent models. 
+##### Model1 Summary
+```{r echo = FALSE}
+#with the raw data as a baseline 
+Model1 <- lm(TARGET_WINS~ ., data = train.data)
+summary(Model1)
+```
+```{r echo = FALSE}
+Final.Model1=data.frame('INDEX'=seq.int(nrow(train.data)),'TARGET_WINS'=predict(Model1, train.data))
+boxplot(Final.Model1$TARGET_WINS,xlab="Win Predicted" ,main="Model1- Train Data- All Variables",horizontal = TRUE)
+```
+
+#### Model 2: All variables - (reformatted data)
+
+This model utilizes the reformatted train.data for the fitted linear mode which utilizes all the variables. Show below, nine variables have statistically significant p-values at the >= 5% significance code level. We Will explore removing some variables in the subsequent models to explore if the model's predictive power can be improved.
+##### Model2 Summary
+```{r echo = FALSE}
+## Raw data, all vars
+#with the reformatted data (removal of nulls, etc)
+Model2 <- lm(TARGET_WINS~ ., data = restructured.train.data)
+summary(Model2)
+
+```
+
+##### Histogram of the Model2 Residuals 
+```{r echo = FALSE}
+hist(Model2$residuals,25)
+```
+
+##### Plotted Residuals 
+```{r echo = FALSE}
+par(mfrow=c(2,2))
+plot(Model2)
+```
+
+
+##### Predicted Wins- Model2
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+Final.Model2=data.frame('INDEX'=seq.int(nrow(restructured.train.data)),'TARGET_WINS'=predict(Model2,
+                                                                                             restructured.train.data))
+boxplot(Final.Model2$TARGET_WINS,xlab="Win Predicted" ,main="Model2 Reformatted Data- All Variables", horizontal = TRUE)
+```
+
+
+#### Model 3: Backward Elimination (Automated)
+
+- Since the restructured model has seventeen explanatory variables, it is not feasible to fit all possible models. Below the backward elimination search algorithm is employed to find the best model. The r function step() was used to determine which variables should be removed from the model utilizing the AIC, Akaike's Information Criteria. The smaller the AIC, the better the fit. The partial F-test is used to test if there is a significant change in the residual sum of squares from Model2 (all variables) to Backward.Model (backward elimination model). Based on the partial F-tested (summarized using the anova function) there is no evidence to believe that the nested model (Backward.Model) is significantly better than the full model (Model2). Fail to reject the null hypothesis.
+
+
+```{recho = FALSE}
+test <- step(Model2, direction = "backward")
+```
+##### Backward.Model Summary
+```{r echo = FALSE}
+Backward.Model <- lm(TARGET_WINS ~ BATTING_H  + BATTING_3B + BATTING_HR + 
+    BATTING_BB + BATTING_SO + BASERUN_SB + BATTING_HBP + PITCHING_H + 
+    PITCHING_SO + FIELDING_E + Defense, data = restructured.train.data
+) 
+summary(Backward.Model)
+```
+
+##### Partial F-test Backward.Model vs Model2
+```{r echo = FALSE}
+anova(Backward.Model, Model2)
+```
+##### Histogram of Residuals
+```{r echo = FALSE}
+hist(Backward.Model$residuals,25)
+```
+##### Plotted Residuals
+```{r echo = FALSE}
+par(mfrow=c(2,2))
+plot(Backward.Model)
+```
+##### Predicted Wins- Backward.Model
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+Final.Model3=data.frame('INDEX'=seq.int(nrow(restructured.train.data)),'TARGET_WINS'=predict(Backward.Model,
+                                                                                             restructured.train.data))
+boxplot(Final.Model3$TARGET_WINS,xlab="Win Predicted" ,main="Model3 Backward Elimination", horizontal = TRUE)
+```
+
+
+#### Model 4: Manual Selection of Variables 
+
+- In Model4, I manually selected the best model based on the p-values and dropped variables that were not significant. The variables were removed on an individual basis to avoid collinearity issues, masking issues. The partial F-test is used to test if there is a significant change in the residual sum of squares from Model2 (all variables) to Model4 (Nested Model). The 'Defense' and 'PITCHING_SO' variables were removed when the vif() function discovered mutlicollinearity. Based on the partial F-tested (summarized using the anova function) there is evidence to believe that the nested model (Model4) is significantly better than the full model (Model2). 
+
+##### Model4 Summary
+```{r echo = FALSE}
+Model4 <- update(Model2, .~. -Offense -PITCHING_HR, data = restructured.train.data)
+Model4 <- update(Model4, .~. -FIELDING_DP, data = restructured.train.data)
+Model4 <- update(Model4, .~. -PITCHING_BB, data = restructured.train.data)
+Model4 <- update(Model4, .~. -BASERUN_CS -BATTING_2B, data = restructured.train.data)
+summary(Model4)
+```
+
+##### Multi-collinearity Test
+```{r echo = FALSE , message=FALSE, warning=FALSE}
+library(car)
+vif(Model4)
+```
+##### Removal of Defense & PITCHING_SO 
+```{r echo = FALSE}
+Model4 <- update(Model4, .~. -Defense -PITCHING_SO , data = restructured.train.data)
+summary(Model4)
+```
+
+##### Partial F-test Model4 vs Model2
+```{r echo = FALSE}
+anova(Model4, Model2)
+```
+##### Histogram of Residuals
+```{r echo = FALSE}
+hist(Model4$residuals,25)
+```
+##### Plotted Residuals
+```{r echo = FALSE}
+par(mfrow=c(2,2))
+plot(Model4)
+```
+##### Predicted Wins- Model4
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+Final.Model4=data.frame('INDEX'=seq.int(nrow(restructured.train.data)),'TARGET_WINS'=predict(Model4,
+                                                                                             restructured.train.data))
+boxplot(Final.Model4$TARGET_WINS,xlab="Win Predicted" ,main="Model4 Manual Selection", horizontal = TRUE)
+```
+
+#### Model 5: Remove Outliers
+- The outliers are removed from the model utilizing the outlier() function. The datatable with the outliers removed is stored in the outlier.removed.df datatable. The same exploratory variables removed in Model4 are remove in Model5.
+- Below plots are the outliers for the restructured data vs the removed outlier data 
+```{r echo = FALSE}
+outlier.removed.df <- restructured.train.data
+
+
+for(i in names(outlier.removed.df)){
+  outlier_tf1 <- outlier(outlier.removed.df[[i]],logical=TRUE)
+  find_outlier1 <- which(outlier_tf1==TRUE,arr.ind=TRUE)
+  outlier.removed.df<- outlier.removed.df[-find_outlier1,]
+
+}
+
+par(mfrow=c(2,1))
+boxplot(restructured.train.data)
+boxplot(outlier.removed.df)
+```
+##### Model5 Summary - All Variables 
+```{r echo = FALSE}
+Model5 <- lm(TARGET_WINS~ ., data = outlier.removed.df)
+summary(Model5)
+```
+##### Model5 Summary - Variables 
+```{r echo = FALSE}
+Model5 <- update(Model5, .~.-Offense-Defense- PITCHING_H-PITCHING_HR- BASERUN_CS- PITCHING_BB- BATTING_2B- BATTING_SO -PITCHING_SO, data = outlier.removed.df)
+summary(Model5)
+```
+##### Multi-collinearity Test
+```{r echo = FALSE}
+vif(Model5)
+```
+##### Histogram of Residuals
+```{r echo = FALSE}
+hist(Model5$residuals,25)
+```
+##### Plotted Residuals
+```{r echo = FALSE}
+par(mfrow=c(2,2))
+plot(Model5)
+```
+##### Predicted Wins- Model5
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+Final.Model5=data.frame('INDEX'=seq.int(nrow(outlier.removed.df)),'TARGET_WINS'=predict(Model5,
+                                                                                             outlier.removed.df))
+boxplot(Final.Model5$TARGET_WINS,xlab="Win Predicted" ,main="Model5 Outliers Removed", horizontal = TRUE)
+```
+
+#### Model 6: Log Transformations
+- For this model the skewness of each variable is evaluated. If the absolute value of the explanitory variable's skewness is above one, a log transformation of the variable replaces the variable. the linear model is then fitted with the transformed variables. The log transformed variables are "BATTING_H", "BATTING_3B", "BATTING_BB", "BASERUN_SB", "BASERUN_CS", "PITCHING_H", "PITCHING_BB", "PITCHING_SO", "FIELDING_E" & "Defense"
+
+After the fitted model is assessed, the same variables that are removed in Model4 are removed from Model6 for comparrison purposes. 
+
+##### All variables printed below will undergo the log transformation 
+```{r echo = FALSE}
+
+log.df <- restructured.train.data
+for(i in names(log.df)){
+  if (i != "BATTING_HBP"){
+    if (abs(skewness(log.df[[i]])) > 1){
+      log.df[[i]] = log(log.df[[i]])
+      log.df[[i]][!is.finite(log.df[[i]])] <- 0
+      
+      print(i)
+    }
+  }
+} 
+
+Model6 <- lm(TARGET_WINS~ ., data = log.df )
+summary(Model6 )
+
+```
+##### Model6 Summary
+```{r echo = FALSE}
+Model6 <- update(Model6, .~.-Offense-Defense- PITCHING_H-PITCHING_HR- BASERUN_CS- PITCHING_BB- BATTING_2B- BATTING_SO -PITCHING_SO, data = outlier.removed.df)
+summary(Model6)
+```
+##### Multi-collinearity Test
+```{r echo = FALSE}
+vif(Model6)
+```
+##### Histogram of Residuals
+```{r echo = FALSE}
+hist(Model6$residuals,25)
+```
+##### Plotted Residuals
+```{r echo = FALSE}
+par(mfrow=c(2,2))
+plot(Model6)
+```
+##### Predicted Wins- Model6
+```{r echo = FALSE,  message=FALSE, warning=FALSE}
+Final.Model6=data.frame('INDEX'=seq.int(nrow(log.df)),'TARGET_WINS'=predict(Model6,log.df))
+boxplot(Final.Model6$TARGET_WINS,xlab="Win Predicted" ,main="Model6 Log Transformation", horizontal = TRUE)
+```
+### 4. SELECT MODELS (25 Points)
+
+Decide on the criteria for selecting the best multiple linear regression model. Will you select a model with slightly worse performance if it makes more sense or is more parsimonious? Discuss why you selected your model.
+For the multiple linear regression model, will you use a metric such as Adjusted R2, RMSE, etc.? Be sure to explain how you can make inferences from the model, discuss multi-collinearity issues (if any), and discuss other relevant model output. Using the training data set, evaluate the multiple linear regression model based on (a) mean squared error, (b) R2, (c) F-statistic, and (d) residual plots. Make predictions using the evaluation data set.
+
+##### Plotted Target Wins - Density Plot
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+library(gridExtra)
+par(mfrow=c(1,3))
+plot1 <- ggplot(Final.Model1, aes(x = Final.Model1$TARGET_WINS)) + geom_density()+ggtitle("Model1- Train Data- All Variables")
+plot2 <- ggplot(Final.Model2, aes(x = Final.Model2$TARGET_WINS)) + geom_density()+ggtitle("Model2 Reformatted Data- All Variables")
+plot3 <- ggplot(Final.Model3, aes(x = Final.Model3$TARGET_WINS)) + geom_density()+ggtitle("Model3 Backward Elimination")
+
+plot4 <- ggplot(Final.Model4, aes(x = Final.Model4$TARGET_WINS)) + geom_density()+ggtitle("Model4 Manual Selection")
+plot5 <- ggplot(Final.Model5, aes(x = Final.Model5$TARGET_WINS)) + geom_density()+ggtitle("Model5 Outliers Removed")
+plot6 <- ggplot(Final.Model6, aes(x = Final.Model6$TARGET_WINS)) + geom_density()+ggtitle("Model6 Log Transformation")
+grid.arrange(plot1, plot2,plot3,plot4, plot5, plot6,  ncol=2)
+```
+##### Plotted Target Wins - Boxplot
+```{r echo = FALSE}
+par(mfrow=c(2,3))
+boxplot(Final.Model1$TARGET_WINS,xlab="Wins Predicted M1" ,horizontal = FALSE)
+boxplot(Final.Model2$TARGET_WINS,xlab="Wins Predicted M2" ,horizontal = FALSE)
+boxplot(Final.Model3$TARGET_WINS,xlab="Wins Predicted M3" ,horizontal = FALSE)
+boxplot(Final.Model4$TARGET_WINS,xlab="Wins Predicted M4" ,horizontal = FALSE)
+boxplot(Final.Model5$TARGET_WINS,xlab="Wins Predicted M5" ,horizontal = FALSE)
+boxplot(Final.Model6$TARGET_WINS,xlab="Wins Predicted M6" ,horizontal = FALSE)
+```
+#### Calculate the R Squared For Each Model:
+```{r echo = FALSE}
+model.name<- c('Model1', 'Model2', 'Model3', 'Model4', 'Model5', 'Model6')
+r.sq.values <- c(summary(Model1)$r.squared, summary(Model2)$r.squared, summary(Backward.Model)$r.squared, summary(Model4)$r.squared, summary(Model5)$r.squared, summary(Model6)$r.squared)
+
+r.sq.values
+```
+
+#### Calculate the Mean Squared Error (MSE) for Each Model:
+
+
+```{r echo = FALSE}
+mse <- function(sm) 
+    mean(sm$residuals^2)
+
+
+col.mse <- c(mse(Model1), mse(Model2), mse(Backward.Model), mse(Model4), mse(Model5), mse(Model6))
+col.mse
+```
+#### Calculate the F Statistic for Each Model:
+
+```{r echo = FALSE}
+col.f.stat<- c(summary(Model1)$fstatistic[[1]],summary(Model2)$fstatistic[[1]],summary(Backward.Model)$fstatistic[[1]],summary(Model4)$fstatistic[[1]],summary(Model5)$fstatistic[[1]],summary(Model6)$fstatistic[[1]])
+col.f.stat
+```
+
+#### Final Summary All Models 
+```{r echo = FALSE}
+summary_df <- data.frame(cbind(model.name, round(r.sq.values,2), round(col.mse,2), round(col.f.stat,2)))%>%
+              rename(r.sq = V2, mse = V3, f.stat = V4)
+kable(summary_df)%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+
+#### Model Selected 
+
+Model5, the removed outliers model, has the largest f-statistic (tied wtih model6), a relatively small mean squared error (mse), and adjusted R2 squared value that is only slightly smaller than the other five models. The predicted target wins for Model five appears to be the tightest fit graph (please view the above box plot and density plot). The histogram of the residuals also appears to be normal. Multi-collinearity is also not problem with model5 (please view the above).
+
+##### Model 5 Plotted Predicted Values (Evaluation Data)
+```{r echo = FALSE}
+predicted.wins <- predict.lm(Model5, newdata = test.data)
+predicted.wins <- as.data.frame(predicted.wins)
+colnames(predicted.wins) <- "PredictedWins"
+
+ggplot(predicted.wins, aes(x = PredictedWins)) + geom_density()
+```
+```{r echo = FALSE}
+kable(head(predicted.wins))
+```
+
+
