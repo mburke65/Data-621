@@ -1,7 +1,7 @@
 ---
 title: "Homework 1- Data 621"
 author: "Meaghan Burke"
-date: "September 17, 2018"
+date: "September 29, 2018"
 output: html_document
 ---
 
@@ -39,7 +39,7 @@ d. Are any of the variables missing and need to be imputed "fixed"?
 #replace TEAM from column header 
 # remove the index because it is not relevant to the dataset as per the instructions 
 
-raw.data  <- "C:/Users/burke/OneDrive/Desktop/Data 621- Data Mining/HW 1/Data/moneyball-training-data.csv"
+raw.data  <- "...../moneyball-training-data.csv"
 
 train.data <- read.csv(raw.data,header = T)
 
@@ -47,7 +47,7 @@ train.data <- train.data%>%
   `colnames<-`( gsub("TEAM_", "", names(train.data))) %>%select(-c(INDEX))
 
 
-raw.data.test <- "C:/Users/burke/OneDrive/Desktop/Data 621- Data Mining/HW 1/Data/moneyball-evaluation-data.csv"
+raw.data.test <- "..../moneyball-evaluation-data.csv"
 test.data <- read.csv(raw.data.test,header = T)
 
 
