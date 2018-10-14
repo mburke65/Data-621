@@ -1,0 +1,210 @@
+---
+title: 'Homework 2, Data 621'
+author: "Meaghan Burke"
+date: "October 14, 2018"
+output: html_document
+---
+
+### Overview
+
+
+In this homework assignment, you will work through various classification metrics. You will be asked to create
+functions in R to carry out the various calculations. You will also investigate some functions in packages that will let
+you obtain the equivalent results. Finally, you will create graphical output that also can be used to evaluate the
+output of classification models, such as binary logistic regression.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(dplyr)
+library(pROC)
+library(knitr)
+library(kableExtra)
+```
+
+####  1. Download the classification output data set (attached in Blackboard to the assignment)
+
+```{r echo = FALSE}
+
+raw.data  <- "C:/Users/burke/OneDrive/Desktop/Data 621- Data Mining/HW 2/classification-output-data.csv"
+
+classification.data <- read.csv(raw.data,header = T)
+
+kable(head(classification.data))%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+#### 2. The data set has three key columns we will use:
+
+- **class**: the actual class for the observation
+- **scored.class**: the predicted class for the observation (based on a threshold of 0.5)
+- **scored.probability**: the predicted probability of success for the observation
+
+Use the table() function to get the raw confusion matrix for this scored dataset. Make sure you understand
+the output. In particular, do the rows represent the actual or predicted class? The columns? *table(Predicted, Observed)*
+
+```{r pressure, echo=FALSE, fig.cap="**Confusion Matrix**", out.width = '50%'}
+knitr::include_graphics("C:/Users/burke/OneDrive/Desktop/Data 621- Data Mining/HW 2/Confusion_Matrix1_1.png")
+```
+
+```{r echo = FALSE}
+confusion.matrix <- table(classification.data$scored.class, classification.data$class)
+
+kable(confusion.matrix)%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+
+#### 3-8. Write a function(s) that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the accuracy, classifications, precision, sensitivity, specificity, f1 score of the predictions.
+
+- Label the outcomes of the confusion matrix https://www.geeksforgeeks.org/confusion-matrix-machine-learning/
+    - **TP**: Observation is positive, and is predicted to be positive (TOP LEFT [1,1])
+    - **TN**: Observation is negative, and is predicted to be negative (BOTTOM RIGHT [2,2])
+    - **FP**: Observation is negative, but is predicted positive (BOTTOM LEFT [1,2])
+    - **FN**: Observation is positive, but is predicted negative (TOP RIGHT [2,1])
+    
+3. **Accuaracy: (tp + tn) / (tp + fp + tn + fn)**
+4. **Classification Error Rate: (fp + fn) / (tp + fp + tn + fn)**
+5. **Precision: tp / (tp + fp)**
+6. **Sensitivity: tp / (tp + fn)**
+7. **Specificity: tn / (tn + fp)**
+8. **F1 Score: (2 * precision * sensitivity) / (precision     + sensitivity)**
+
+
+
+```{r echo = FALSE}
+## Label the axis tp, tn, fp, fn
+tp <- confusion.matrix[1,1]
+tn <- confusion.matrix[2,2]
+fp <- confusion.matrix[1,2]
+fn <- confusion.matrix[2,1]
+
+```
+
+```{r echo = FALSE}
+evaluatorsfunction <- function(tp, tn, fp, fn) {
+  accuracy <- (tp + tn) / (tp + fp + tn + fn)
+  classification.error.rate <- (fp + fn) / (tp + fp + tn + fn)
+  precision <- tp / (tp + fp)
+  sensitivity <- tp / (tp + fn)
+  specificity <- tn / (tn + fp)
+  f1.score <- (2 * precision * sensitivity) / (precision     + sensitivity)
+  
+  evaluation.list <- list("accuracy" = accuracy, "classification.error.rate" = classification.error.rate,
+                  "precision"= precision, "sensitivity"= sensitivity,"specificity"= specificity, "f1.score"= f1.score )
+ return(evaluation.list)
+}
+
+eval.results <- evaluatorsfunction(tp, tn, fp, fn)
+kable(data.frame(eval.results))%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+```
+
+#### 9. Before we move on, let's consider a question that was asked: What are the bounds on the F1 score? Show that the F1 score will always be between 0 and 1.
+
+- By definition, the F1 score is the weighted average of the precision and sensitivty, where an F1 score reaches its best value at *1* and worst at *0*. The F1 score will always be between 0 and 1 because the inputs (precision and sensitivity) are between 0 and 1.
+
+
+#### 10. Write a function that generates an ROC curve from a data set with a true classification column (class in our example) and a probability column (scored.probability in our example). Your function should return a list that includes the plot of the ROC curve and a vector that contains the calculated area under the curve (AUC). Note that I recommend using a sequence of thresholds ranging from 0 to 1 at 0.01 intervals.
+
+- http://blog.revolutionanalytics.com/2016/08/roc-curves-in-two-lines-of-code.html  *helpful ROC source*
+- https://www.rdocumentation.org/packages/base/versions/3.5.1/topics/cumsum *cumsum documentation*
+  - Function inputs:
+    - labels: classification.data$class *is the actual classification of each case*
+    - scores: classification.data$scored.probability *real-valued prediction scores assigned by some classifier*
+  - sort by scores (highest to lowest)
+  - Calculate the sensitivity (TPR- true positive rate) and the specificity (TNR- true negative rate) and the false positive rate (FPR)
+  - Calculate the aUC manually 
+  - Confirm with the roc() and auc() functions built into the pROC library [problem 13]
+
+```{r echo = FALSE}
+
+#http://blog.revolutionanalytics.com/2016/11/calculating-auc.html
+simple_roc <- function(labels, scores){
+  labels <- labels[order(scores, decreasing=TRUE)]
+  roc.df<- data.frame(sensitivity=cumsum(labels)/sum(labels), 
+                      specificity=cumsum(!labels)/sum(!labels),
+                      false.positive.rate = 1 - cumsum(!labels)/sum(!labels),
+                      labels)
+  return(roc.df)
+}
+
+simple_roc <- simple_roc(classification.data$class, classification.data$scored.probability)
+kable(head(simple_roc,10),
+             caption = "Sampling of The ROC Table")%>%
+  kable_styling(bootstrap_options = c("striped", "hover"),position = "left")
+```
+
+
+```{r echo = FALSE}
+simple_auc <- function(sensitivity, FPR){
+  
+  dFPR <- c(diff(FPR), 0)
+  dsensitivity <- c(diff(sensitivity), 0)
+  
+  auc.results<- sum(sensitivity * dFPR) + sum(dsensitivity * dFPR)/2
+  
+  return(auc.results)
+}
+
+auc <- round(simple_auc(simple_roc$sensitivity, simple_roc$false.positive.rate),4)
+kable(auc,
+             caption = "Manually Calculated AUC")
+```
+```{r echo = FALSE}
+ggplot(simple_roc, aes(specificity, sensitivity)) + 
+    geom_line(color='steelblue') + 
+    geom_abline(linetype=2) +
+    annotate("text", x=.5, y = .25, label=paste("AUC: ", auc))
+```
+
+
+
+
+
+
+#### 11. Use your created R functions and the provided classification output data set to produce all of the classification metrics discussed above.
+
+```{r echo = FALSE}
+metrics.table <- data.frame(eval.results)
+kable(metrics.table)%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+
+#### 12. Investigate the caret package. In particular, consider the functions confusionMatrix, sensitivity, and specificity. Apply the functions to the data set. How do the results compare with your own functions?
+
+- The output of the caret function appears to be the same as the manually calculated values 
+
+```{r echo = FALSE}
+caret.calcs <- confusionMatrix(table(classification.data$scored.class, classification.data$class))
+caret.calcs
+```
+
+```{r echo = FALSE}
+caret.list <- data.frame(
+'sensitivity' = caret.calcs$byClass[['Sensitivity']],
+'specificity' = caret.calcs$byClass[['Specificity']],
+'precision' = caret.calcs$byClass[['Precision']],
+'accuracy' = caret.calcs$overall[['Accuracy']],
+'classification.error.rate' = (1 - caret.calcs$overall[['Accuracy']]), 
+'f1.score' = ((2 * caret.calcs$byClass[['Precision']] * caret.calcs$byClass[['Sensitivity']]) / (caret.calcs$byClass[['Precision']]     + caret.calcs$byClass[['Sensitivity']])))
+
+compare.metrics <- rbind(metrics.table, caret.list)
+row.names(compare.metrics) <- c("mb.calcs", "caret.cals")
+
+kable(t(compare.metrics))%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+
+#### 13. Investigate the pROC package. Use it to generate an ROC curve for the data set. How do the results compare with your own functions?
+
+- Appears to be the same as the manually calculated results. Same AUC
+```{r echo = FALSE}
+proc.calc <- roc(classification.data$class, classification.data$scored.probability)
+
+plot(proc.calc , asp=NA, legacy.axes = TRUE, print.auc=TRUE, xlab="Specificity")
+```
+
