@@ -26,7 +26,7 @@ library(kableExtra)
 
 ```{r echo = FALSE}
 
-raw.data  <- "C:/Users/burke/OneDrive/Desktop/Data 621- Data Mining/HW 2/classification-output-data.csv"
+raw.data  <- "..../classification-output-data.csv"
 
 classification.data <- read.csv(raw.data,header = T)
 
@@ -44,7 +44,7 @@ Use the table() function to get the raw confusion matrix for this scored dataset
 the output. In particular, do the rows represent the actual or predicted class? The columns? *table(Predicted, Observed)*
 
 ```{r pressure, echo=FALSE, fig.cap="**Confusion Matrix**", out.width = '50%'}
-knitr::include_graphics("C:/Users/burke/OneDrive/Desktop/Data 621- Data Mining/HW 2/Confusion_Matrix1_1.png")
+knitr::include_graphics("...../Confusion_Matrix1_1.png")
 ```
 
 ```{r echo = FALSE}
